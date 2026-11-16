@@ -1,0 +1,23 @@
+# Personal notes, not version-controlled
+roadmap.mdc
+
+# Secrets and credentials, never commit
+.env
+.env.*
+*.pem
+.aws/
+credentials
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Local data and outputs
+*.log
+rejects/
+.DS_Store
