@@ -33,6 +33,19 @@ The row with `1200.00` is loaded because it came first; the `1350.00` row is rej
 
 The same rule is enforced twice: in code while validating a file, and by a `UNIQUE` constraint on `orders.order_id` in the database. The constraint guarantees the invariant even if the application logic has a gap.
 
+## Row Numbers
+
+`row_number` on a rejected row means different things per format, because the formats differ in what is useful:
+
+- **CSV**: the line number a text editor shows. The header is line 1, so the first order is line 2.
+- **XML**: the 1-based position of the `<Order>` element. XML line numbers are meaningless once a file is reformatted, so the record position is what identifies a row.
+
+## Whole-File Rejection
+
+Some problems belong to the file, not to a row. A CSV whose header is missing a required column cannot produce a single trustworthy row, so the parser raises `SchemaMismatch` and the file is rejected as a whole with one clear reason (`Missing columns: customer_id`) instead of producing one rejected row per line. `UnsupportedFormat` works the same way for an unrecognised extension. Both derive from `ParseError`, so the pipeline has one exception type to catch for file-level failures.
+
+Parsers rename and reshape; they never repair. An XML `PlacedOn` value is shortened to its date part only when it actually matches an ISO timestamp — any other value is passed through untouched so that validation reports, and the rejects table stores, the text the file really contained.
+
 ## Project Layout
 
 ```
