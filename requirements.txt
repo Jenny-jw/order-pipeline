@@ -1,0 +1,7 @@
+boto3==1.44.4
+psycopg[binary]==3.3.9
+python-dotenv==1.2.4
+
+# Tests
+pytest==9.2.0
+moto==5.2.5
