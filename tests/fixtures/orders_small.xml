@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrderBatch batchId="B-20261108-01" source="legacy-erp">
+  <Order>
+    <OrderNo>ORD-3001</OrderNo>
+    <CustomerRef>CUST-601</CustomerRef>
+    <PlacedOn>2026-11-08T09:15:00</PlacedOn>
+    <TotalAmount currency="TWD">780.00</TotalAmount>
+  </Order>
+  <Order>
+    <OrderNo>ORD-3002</OrderNo>
+    <CustomerRef>CUST-602</CustomerRef>
+    <PlacedOn>2026-11-08T11:42:31</PlacedOn>
+    <TotalAmount currency="TWD">1540.50</TotalAmount>
+  </Order>
+  <Order>
+    <OrderNo>ORD-3003</OrderNo>
+    <CustomerRef>CUST-601</CustomerRef>
+    <PlacedOn>2026-11-09T08:03:12</PlacedOn>
+    <TotalAmount currency="TWD">65.00</TotalAmount>
+  </Order>
+  <Order>
+    <OrderNo>ORD-3004</OrderNo>
+    <CustomerRef>CUST-603</CustomerRef>
+    <PlacedOn>2026-11-09T16:27:45</PlacedOn>
+    <TotalAmount currency="TWD">2210.75</TotalAmount>
+  </Order>
+</OrderBatch>
