@@ -1,5 +1,5 @@
 # Personal notes, not version-controlled
-roadmap.mdc
+.cursor/rules/roadmap.mdc
 
 # Secrets and credentials, never commit
 .env
@@ -21,3 +21,5 @@ venv/
 *.log
 rejects/
 .DS_Store
+
+note.md
