@@ -2,21 +2,36 @@
 
 Python pipeline that validates CSV and XML orders from S3, loads them into Postgres, and checks totals with pytest.
 
-A re-runnable order loading flow: files land in S3, Python validates them and writes to a local Postgres, pytest checks row counts and amount totals, and running the same file twice does not create duplicate rows. This is a practice project — it contains no keys and no real data.
+A re-runnable order loading flow: files land in S3, Python validates them and writes to a local Postgres, pytest checks row counts and amount totals, and running the same file twice does not create duplicate rows.
 
 ## Tech Stack
 
-| Layer | Choice |
-| --- | --- |
-| Language | Python 3.11+ |
-| AWS SDK | `boto3` |
-| Database | Local Postgres (Docker) |
-| DB driver | `psycopg[binary]` (v3) |
-| Testing | `pytest` |
-| S3 faking | `moto` (optional) |
-| Parsing | stdlib `csv`, `xml.etree.ElementTree` |
-| Money | `decimal.Decimal`, `NUMERIC(12,2)` |
-| Config | Env vars + gitignored `.env` |
+| Layer     | Choice                                |
+| --------- | ------------------------------------- |
+| Language  | Python 3.10+                          |
+| AWS SDK   | `boto3`                               |
+| Database  | Local Postgres (Docker)               |
+| DB driver | `psycopg[binary]` (v3)                |
+| Testing   | `pytest`                              |
+| S3 faking | `moto` (optional)                     |
+| Parsing   | stdlib `csv`, `xml.etree.ElementTree` |
+| Money     | `decimal.Decimal`, `NUMERIC(12,2)`    |
+| Config    | Env vars + gitignored `.env`          |
+
+## Duplicate Order Handling
+
+When the same `order_id` appears more than once, the first occurrence is loaded and every later occurrence is rejected and recorded with the reason `duplicate_order_id`. The rejected row keeps its original values so the discrepancy can be investigated rather than silently discarded.
+
+This matters when the duplicated rows disagree. In `tests/fixtures/orders_bad.csv`, `ORD-2004` appears twice with different amounts:
+
+```
+ORD-2004,CUST-504,2026-11-06,1200.00,TWD
+ORD-2004,CUST-504,2026-11-06,1350.00,TWD
+```
+
+The row with `1200.00` is loaded because it came first; the `1350.00` row is rejected. The pipeline does not try to decide which amount is correct, because nothing in the file says the later row is a correction rather than a duplicate send. Picking first-wins keeps the outcome deterministic — the same file always produces the same table — and leaves the disagreement visible in the rejects table for a human to resolve.
+
+The same rule is enforced twice: in code while validating a file, and by a `UNIQUE` constraint on `orders.order_id` in the database. The constraint guarantees the invariant even if the application logic has a gap.
 
 ## Project Layout
 
