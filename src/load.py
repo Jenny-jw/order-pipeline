@@ -1,6 +1,8 @@
 """Write one file's rows to Postgres. The database keeps the no-duplicate guarantee."""
 
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 
 from psycopg import Connection
 from psycopg.types.json import Jsonb
@@ -76,3 +78,35 @@ def _insert_rejects(conn: Connection, source_file: str, rejects: list[Reject]) -
             for reject in rejects
         ],
     )
+
+
+def find_processed_at(conn: Connection, s3_key: str, etag: str) -> datetime | None:
+    """When this exact file content was loaded, or None if it has not been."""
+    row = conn.execute(
+        "SELECT processed_at FROM ingested_files WHERE s3_key = %s AND etag = %s",
+        (s3_key, etag),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def record_ingested_file(
+    conn: Connection,
+    s3_key: str,
+    etag: str,
+    source_rows: int,
+    loaded_count: int,
+    rejected_count: int,
+    amount_total: Decimal,
+) -> None:
+    """Remember one successful load. The same key with a new ETag is a new row."""
+    with conn.transaction():
+        conn.execute(
+            """
+            INSERT INTO ingested_files (
+                s3_key, etag, source_rows, loaded_count, rejected_count, amount_total
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (s3_key, etag) DO NOTHING
+            """,
+            (s3_key, etag, source_rows, loaded_count, rejected_count, amount_total),
+        )

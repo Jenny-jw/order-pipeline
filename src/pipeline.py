@@ -9,10 +9,10 @@ from dataclasses import dataclass
 import psycopg
 
 from .config import Config, load_config
-from .load import load_file
+from .load import find_processed_at, load_file, record_ingested_file
 from .parsers import ParseError, parse
 from .reconcile import Reconciliation, reconcile_file
-from .s3_client import S3Reader
+from .s3_client import S3Object, S3Reader
 from .validate import validate_rows
 
 
@@ -25,6 +25,7 @@ class FileSummary:
     rejected: int
     error: str | None = None
     mismatch: str | None = None
+    skipped: str | None = None
 
 
 def run(config: Config | None = None) -> list[FileSummary]:
@@ -33,23 +34,45 @@ def run(config: Config | None = None) -> list[FileSummary]:
     summaries: list[FileSummary] = []
     with psycopg.connect(config.database_url) as conn:
         for obj in reader.list_data_files(config.s3_prefix):
-            summaries.append(_process_file(conn, reader, obj.key))
+            summaries.append(_process_file(conn, reader, obj))
     return summaries
 
 
-def _process_file(conn: psycopg.Connection, reader: S3Reader, key: str) -> FileSummary:
-    text = reader.read_text(key)
+def _process_file(conn: psycopg.Connection, reader: S3Reader, obj: S3Object) -> FileSummary:
+    # Same key and same ETag means the bytes have not changed since the last load.
+    processed_at = find_processed_at(conn, obj.key, obj.etag)
+    if processed_at is not None:
+        return FileSummary(
+            obj.key,
+            read=0,
+            accepted=0,
+            inserted=0,
+            rejected=0,
+            skipped=f"etag {obj.etag} already processed at {processed_at.isoformat()}",
+        )
+
+    text = reader.read_text(obj.key)
     try:
-        rows = parse(key, text)
+        rows = parse(obj.key, text)
     except ParseError as exc:
         # The file itself is unusable. Skip it and keep going with the next one.
-        return FileSummary(key, read=0, accepted=0, inserted=0, rejected=0, error=str(exc))
+        return FileSummary(obj.key, read=0, accepted=0, inserted=0, rejected=0, error=str(exc))
 
     valid, rejects = validate_rows(rows)
-    result = load_file(conn, key, valid, rejects)
-    reconciliation = reconcile_file(conn, key, len(rows), valid, rejects)
+    result = load_file(conn, obj.key, valid, rejects)
+    reconciliation = reconcile_file(conn, obj.key, len(rows), valid, rejects)
+    if reconciliation.ok:
+        record_ingested_file(
+            conn,
+            obj.key,
+            obj.etag,
+            reconciliation.source_rows,
+            reconciliation.loaded_count,
+            reconciliation.rejected_count,
+            reconciliation.accepted_amount,
+        )
     return FileSummary(
-        key=key,
+        key=obj.key,
         read=len(rows),
         accepted=len(valid),
         inserted=result.inserted,
@@ -74,6 +97,10 @@ def main() -> None:
     summaries = run()
     print(f"{'file':<32} {'read':>6} {'accepted':>9} {'inserted':>9} {'rejected':>9}")
     for summary in summaries:
+        if summary.skipped:
+            print(f"{summary.key:<32} skip")
+            print(f"  {summary.skipped}")
+            continue
         if summary.error:
             print(f"{summary.key:<32} ERROR  {summary.error}")
             continue
@@ -83,12 +110,16 @@ def main() -> None:
         )
         if summary.mismatch:
             print(f"  mismatch  {summary.mismatch}")
-    print(
-        f"{'TOTAL':<32} {sum(s.read for s in summaries):6} "
-        f"{sum(s.accepted for s in summaries):9} "
-        f"{sum(s.inserted for s in summaries):9} "
-        f"{sum(s.rejected for s in summaries):9}"
-    )
+    ran = [summary for summary in summaries if not summary.skipped]
+    if ran:
+        print(
+            f"{'TOTAL':<32} {sum(s.read for s in ran):6} "
+            f"{sum(s.accepted for s in ran):9} "
+            f"{sum(s.inserted for s in ran):9} "
+            f"{sum(s.rejected for s in ran):9}"
+        )
+    else:
+        print(f"{'TOTAL':<32} unchanged; every file was already processed")
     if any(summary.mismatch for summary in summaries):
         sys.exit(1)
 
