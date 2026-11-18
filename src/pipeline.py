@@ -3,6 +3,7 @@
 Run with: python -m src.pipeline
 """
 
+import sys
 from dataclasses import dataclass
 
 import psycopg
@@ -10,6 +11,7 @@ import psycopg
 from .config import Config, load_config
 from .load import load_file
 from .parsers import ParseError, parse
+from .reconcile import Reconciliation, reconcile_file
 from .s3_client import S3Reader
 from .validate import validate_rows
 
@@ -22,6 +24,7 @@ class FileSummary:
     inserted: int  # rows newly written; 0 on a rerun
     rejected: int
     error: str | None = None
+    mismatch: str | None = None
 
 
 def run(config: Config | None = None) -> list[FileSummary]:
@@ -44,13 +47,27 @@ def _process_file(conn: psycopg.Connection, reader: S3Reader, key: str) -> FileS
 
     valid, rejects = validate_rows(rows)
     result = load_file(conn, key, valid, rejects)
+    reconciliation = reconcile_file(conn, key, len(rows), valid, rejects)
     return FileSummary(
         key=key,
         read=len(rows),
         accepted=len(valid),
         inserted=result.inserted,
         rejected=result.rejected,
+        mismatch=None if reconciliation.ok else _mismatch_line(reconciliation),
     )
+
+
+def _mismatch_line(result: Reconciliation) -> str:
+    parts = []
+    accounted = result.loaded_count + result.rejected_count
+    if result.source_rows != accounted:
+        parts.append(f"rows {result.source_rows} != loaded {result.loaded_count} + rejected {result.rejected_count}")
+    if result.accepted_amount != result.loaded_amount:
+        parts.append(f"amount {result.accepted_amount} != loaded {result.loaded_amount}")
+    ids = ", ".join(result.order_ids) if result.order_ids else "(no order_id)"
+    parts.append(f"order_ids: {ids}")
+    return "; ".join(parts)
 
 
 def main() -> None:
@@ -64,12 +81,16 @@ def main() -> None:
             f"{summary.key:<32} {summary.read:6} {summary.accepted:9} "
             f"{summary.inserted:9} {summary.rejected:9}"
         )
+        if summary.mismatch:
+            print(f"  mismatch  {summary.mismatch}")
     print(
         f"{'TOTAL':<32} {sum(s.read for s in summaries):6} "
         f"{sum(s.accepted for s in summaries):9} "
         f"{sum(s.inserted for s in summaries):9} "
         f"{sum(s.rejected for s in summaries):9}"
     )
+    if any(summary.mismatch for summary in summaries):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
